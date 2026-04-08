@@ -8,14 +8,28 @@
   const BUTTON_TEXT_PATTERNS = [
     "reject",
     "odmitnout",
+    "odmitnout vse",
+    "zamitnout",
+    "zamitnout vse",
+    "nesouhlasit",
     "only necessary",
     "pouze nezbytne",
-    "necessary only"
+    "necessary only",
+    "nesouhlasit"
+  ];
+  const DETAILS_TEXT_PATTERNS = [
+    "podrobne nastaveni",
+    "details",
+    "preferences",
+    "manage preferences",
+    "customize",
+    "customise"
   ];
   const CMP_HANDLERS = (window.CookiesBlockerCmpHandlers || []).slice();
   let finished = false;
   let runScheduled = false;
   let noMatchLogged = false;
+  let timeoutId = null;
 
   function normalizeText(value) {
     return (value || "")
@@ -62,6 +76,14 @@
   }
 
   function findCandidateButton(root) {
+    return findButtonByPatterns(root, BUTTON_TEXT_PATTERNS);
+  }
+
+  function findDetailsButton(root) {
+    return findButtonByPatterns(root, DETAILS_TEXT_PATTERNS);
+  }
+
+  function findButtonByPatterns(root, patterns) {
     const selectors = [
       "button",
       "input[type='button']",
@@ -77,7 +99,7 @@
       }
 
       const text = getClickableText(element);
-      if (BUTTON_TEXT_PATTERNS.some((pattern) => text.includes(pattern))) {
+      if (patterns.some((pattern) => text.includes(pattern))) {
         return element;
       }
     }
@@ -93,6 +115,25 @@
       if (button) {
         button.click();
         console.log(`${LOG_PREFIX} DOM strategy matched`, button);
+        reportResult("success", "dom");
+        return true;
+      }
+    }
+
+    for (const root of bannerCandidates) {
+      const detailsButton = findDetailsButton(root);
+      if (!detailsButton) {
+        continue;
+      }
+
+      detailsButton.click();
+      console.log(`${LOG_PREFIX} Opened detailed settings`, detailsButton);
+
+      const retryButton = findCandidateButton(root) || findCandidateButton(document.body);
+      if (retryButton) {
+        retryButton.click();
+        console.log(`${LOG_PREFIX} DOM strategy matched after opening details`, retryButton);
+        reportResult("success", "dom-details");
         return true;
       }
     }
@@ -101,7 +142,22 @@
     if (fallbackButton) {
       fallbackButton.click();
       console.log(`${LOG_PREFIX} DOM fallback matched`, fallbackButton);
+      reportResult("success", "dom-fallback");
       return true;
+    }
+
+    const fallbackDetailsButton = findDetailsButton(document.body);
+    if (fallbackDetailsButton) {
+      fallbackDetailsButton.click();
+      console.log(`${LOG_PREFIX} Opened detailed settings fallback`, fallbackDetailsButton);
+
+      const retryButton = findCandidateButton(document.body);
+      if (retryButton) {
+        retryButton.click();
+        console.log(`${LOG_PREFIX} DOM fallback matched after opening details`, retryButton);
+        reportResult("success", "dom-fallback-details");
+        return true;
+      }
     }
 
     return false;
@@ -117,6 +173,7 @@
         const handled = await handler.reject();
         if (handled) {
           console.log(`${LOG_PREFIX} CMP strategy matched ${handler.id}`);
+          reportResult("success", handler.id);
           return true;
         }
       } catch (error) {
@@ -160,6 +217,19 @@
     }, 150);
   }
 
+  function reportResult(status, mode) {
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+      timeoutId = null;
+    }
+
+    chrome.runtime.sendMessage({
+      type: "cookies-blocker-result",
+      status,
+      mode
+    }).catch(() => {});
+  }
+
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", scheduleRun, { once: true });
   } else {
@@ -181,4 +251,14 @@
   });
 
   window.addEventListener("load", scheduleRun, { once: true });
+
+  timeoutId = window.setTimeout(() => {
+    if (finished) {
+      return;
+    }
+
+    finished = true;
+    observer.disconnect();
+    reportResult("failure", "timeout");
+  }, 8000);
 })();
