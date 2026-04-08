@@ -2,6 +2,12 @@
 
 Chrome extension (Manifest V3), která automaticky odmítá cookie bannery a volitelně smaže cookies při odchodu z domény.
 
+Ikona v toolbaru:
+
+* `...` = detekce právě běží
+* `OK` = odmítnutí proběhlo úspěšně
+* `NO` = nenašla se použitelná strategie
+
 ## Instalace
 
 1. Otevři `chrome://extensions`.

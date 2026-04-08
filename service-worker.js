@@ -1,5 +1,6 @@
 const CLEANUP_STORAGE_KEY = "cleanupOnDomainExit";
 const DEFAULT_CLEANUP_ENABLED = false;
+const TAB_LOGS_STORAGE_KEY = "tabLogs";
 const tabHostnames = new Map();
 const INJECTED_FILES = [
   "cmp/onetrust.js",
@@ -8,6 +9,33 @@ const INJECTED_FILES = [
   "cmp/usercentrics.js",
   "content-script.js"
 ];
+const ICON_STYLES = {
+  idle: {
+    background: "#64748b",
+    symbol: "C",
+    symbolColor: "#ffffff",
+    title: "Cookies Blocker"
+  },
+  pending: {
+    background: "#2563eb",
+    symbol: "...",
+    symbolColor: "#ffffff",
+    title: "Cookies Blocker: detection in progress"
+  },
+  success: {
+    background: "#15803d",
+    symbol: "OK",
+    symbolColor: "#ffffff",
+    title: "Cookies Blocker: cookies rejected"
+  },
+  failure: {
+    background: "#b91c1c",
+    symbol: "NO",
+    symbolColor: "#ffffff",
+    title: "Cookies Blocker: no rejection strategy matched"
+  }
+};
+const ICON_SIZES = [16, 32];
 
 chrome.runtime.onInstalled.addListener(async () => {
   const stored = await chrome.storage.sync.get(CLEANUP_STORAGE_KEY);
@@ -25,6 +53,7 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   const hostname = tabHostnames.get(tabId);
   tabHostnames.delete(tabId);
+  await removeTabLog(tabId);
   if (!hostname) {
     return;
   }
@@ -52,6 +81,8 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (previousHostname && previousHostname !== nextHostname && await isCleanupEnabled()) {
     await clearCookiesForHostname(previousHostname);
   }
+
+  await setIconState(details.tabId, "idle");
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
@@ -69,13 +100,48 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 
   try {
+    await setIconState(tabId, "pending");
+    await writeTabLog(tabId, {
+      status: "pending",
+      mode: "injection",
+      url: tab.url,
+      hostname,
+      message: "Detection started."
+    });
     await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
       files: INJECTED_FILES
     });
   } catch (error) {
+    await setIconState(tabId, "failure");
+    await writeTabLog(tabId, {
+      status: "failure",
+      mode: "injection",
+      url: tab.url,
+      hostname,
+      message: "Script injection failed."
+    });
     console.warn("[Cookies Blocker] Failed to inject scripts", tab.url, error);
   }
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== "cookies-blocker-result" || !sender.tab?.id) {
+    return;
+  }
+
+  const status = message.status === "success" ? "success" : "failure";
+  void Promise.all([
+    setIconState(sender.tab.id, status),
+    writeTabLog(sender.tab.id, {
+      status,
+      mode: message.mode,
+      url: sender.tab.url,
+      hostname: sender.tab.url ? getHostnameFromUrl(sender.tab.url) : null,
+      message: getResultMessage(status, message.mode)
+    })
+  ]);
+  sendResponse({ ok: true });
 });
 
 async function initializeTrackedTabs() {
@@ -174,4 +240,99 @@ async function removeCookie(cookie) {
   } catch (error) {
     console.warn("[Cookies Blocker] Failed to remove cookie", cookie.name, cookie.domain, error);
   }
+}
+
+async function setIconState(tabId, status) {
+  const style = ICON_STYLES[status];
+  if (!style) {
+    return;
+  }
+
+  await chrome.action.setIcon({
+    tabId,
+    imageData: createIconSet(style)
+  });
+  await chrome.action.setTitle({ tabId, title: style.title });
+}
+
+function createIconSet(style) {
+  const iconSet = {};
+  for (const size of ICON_SIZES) {
+    iconSet[size] = drawIcon(size, style);
+  }
+  return iconSet;
+}
+
+function drawIcon(size, style) {
+  const canvas = new OffscreenCanvas(size, size);
+  const context = canvas.getContext("2d");
+  const center = size / 2;
+  const radius = size * 0.44;
+
+  context.clearRect(0, 0, size, size);
+  context.fillStyle = style.background;
+  context.beginPath();
+  context.arc(center, center, radius, 0, Math.PI * 2);
+  context.fill();
+
+  context.fillStyle = style.symbolColor;
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+
+  const fontSize = style.symbol.length >= 3
+    ? Math.max(6, Math.floor(size * 0.34))
+    : style.symbol.length === 2
+      ? Math.max(7, Math.floor(size * 0.42))
+      : Math.max(9, Math.floor(size * 0.52));
+
+  context.font = `700 ${fontSize}px sans-serif`;
+  context.fillText(style.symbol, center, center + (size <= 16 ? 0.5 : 1));
+
+  return context.getImageData(0, 0, size, size);
+}
+
+async function writeTabLog(tabId, entry) {
+  const stored = await chrome.storage.local.get(TAB_LOGS_STORAGE_KEY);
+  const tabLogs = stored[TAB_LOGS_STORAGE_KEY] || {};
+
+  tabLogs[String(tabId)] = {
+    ...entry,
+    updatedAt: new Date().toISOString()
+  };
+
+  await chrome.storage.local.set({ [TAB_LOGS_STORAGE_KEY]: tabLogs });
+}
+
+async function removeTabLog(tabId) {
+  const stored = await chrome.storage.local.get(TAB_LOGS_STORAGE_KEY);
+  const tabLogs = stored[TAB_LOGS_STORAGE_KEY] || {};
+  if (!tabLogs[String(tabId)]) {
+    return;
+  }
+
+  delete tabLogs[String(tabId)];
+  await chrome.storage.local.set({ [TAB_LOGS_STORAGE_KEY]: tabLogs });
+}
+
+function getResultMessage(status, mode) {
+  if (status === "failure") {
+    if (mode === "timeout") {
+      return "No matching cookie strategy was found.";
+    }
+
+    return "Cookie rejection did not complete.";
+  }
+
+  const messages = {
+    dom: "Rejected cookies using a visible page button.",
+    "dom-details": "Opened detailed settings and rejected cookies.",
+    "dom-fallback": "Rejected cookies using a page-wide fallback button.",
+    "dom-fallback-details": "Opened detailed settings fallback and rejected cookies.",
+    onetrust: "Rejected cookies using the OneTrust handler.",
+    cookiebot: "Rejected cookies using the Cookiebot handler.",
+    didomi: "Rejected cookies using the Didomi handler.",
+    usercentrics: "Rejected cookies using the Usercentrics handler."
+  };
+
+  return messages[mode] || "Rejected cookies successfully.";
 }
