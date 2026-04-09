@@ -15,7 +15,9 @@
     "only necessary",
     "pouze nezbytne",
     "necessary only",
-    "nesouhlasit"
+    "deny all",
+    "decline",
+    "refuse",
   ];
   const DETAILS_TEXT_PATTERNS = [
     "podrobne nastaveni",
@@ -89,12 +91,12 @@
       "input[type='button']",
       "input[type='submit']",
       "[role='button']",
-      "[tabindex]"
+      "a[role='button']"
     ];
     const elements = root.querySelectorAll(selectors.join(","));
 
     for (const element of elements) {
-      if (!isVisible(element)) {
+      if (!isVisible(element) || !isSafeClickableElement(element)) {
         continue;
       }
 
@@ -105,6 +107,21 @@
     }
 
     return null;
+  }
+
+  function isSafeClickableElement(element) {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+
+    if (element instanceof HTMLAnchorElement) {
+      const href = (element.getAttribute("href") || "").trim().toLowerCase();
+      if (href.startsWith("javascript:")) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   function tryDomStrategy() {
