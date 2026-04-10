@@ -16,6 +16,25 @@
   "background": {
     "service_worker": "service-worker.js"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "match_about_blank": true,
+      "match_origin_as_fallback": true,
+      "all_frames": true,
+      "run_at": "document_idle",
+      "js": [
+        "cmp/onetrust.js",
+        "cmp/cookiebot.js",
+        "cmp/didomi.js",
+        "cmp/usercentrics.js",
+        "cmp/fastcmp.js",
+        "content-script.js"
+      ]
+    }
+  ],
   "action": {
     "default_title": "Cookies Blocker",
     "default_popup": "popup.html"
