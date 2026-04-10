@@ -7,6 +7,7 @@ const INJECTED_FILES = [
   "cmp/cookiebot.js",
   "cmp/didomi.js",
   "cmp/usercentrics.js",
+  "cmp/fastcmp.js",
   "content-script.js"
 ];
 const ICON_STYLES = {
@@ -331,6 +332,7 @@ function getResultMessage(status, mode) {
     onetrust: "Rejected cookies using the OneTrust handler.",
     cookiebot: "Rejected cookies using the Cookiebot handler.",
     didomi: "Rejected cookies using the Didomi handler.",
+    fastcmp: "Rejected cookies using the FastCMP handler.",
     usercentrics: "Rejected cookies using the Usercentrics handler."
   };
 
