@@ -2,6 +2,7 @@ const CLEANUP_STORAGE_KEY = "cleanupOnDomainExit";
 const DEFAULT_CLEANUP_ENABLED = false;
 const TAB_LOGS_STORAGE_KEY = "tabLogs";
 const tabHostnames = new Map();
+const tabResultStates = new Map();
 const INJECTED_FILES = [
   "cmp/onetrust.js",
   "cmp/cookiebot.js",
@@ -54,6 +55,7 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   const hostname = tabHostnames.get(tabId);
   tabHostnames.delete(tabId);
+  tabResultStates.delete(tabId);
   await removeTabLog(tabId);
   if (!hostname) {
     return;
@@ -84,6 +86,7 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   }
 
   await setIconState(details.tabId, "idle");
+  tabResultStates.delete(details.tabId);
 });
 
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
@@ -102,6 +105,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
   try {
     await setIconState(tabId, "pending");
+    tabResultStates.set(tabId, "pending");
     await writeTabLog(tabId, {
       status: "pending",
       mode: "injection",
@@ -115,6 +119,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     });
   } catch (error) {
     await setIconState(tabId, "failure");
+    tabResultStates.set(tabId, "failure");
     await writeTabLog(tabId, {
       status: "failure",
       mode: "injection",
@@ -132,6 +137,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   const status = message.status === "success" ? "success" : "failure";
+  const currentStatus = tabResultStates.get(sender.tab.id);
+
+  if (currentStatus === "success" && status === "failure") {
+    sendResponse({ ok: true, ignored: true });
+    return;
+  }
+
+  tabResultStates.set(sender.tab.id, status);
   void Promise.all([
     setIconState(sender.tab.id, status),
     writeTabLog(sender.tab.id, {

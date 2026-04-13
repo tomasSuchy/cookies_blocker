@@ -9,13 +9,30 @@
   }
 
   function getButtonText(button) {
+    const beforeContent = getPseudoContent(button, "::before");
+    const afterContent = getPseudoContent(button, "::after");
     return normalizeText([
       button.innerText,
       button.textContent,
+      beforeContent,
+      afterContent,
       button.getAttribute("aria-label"),
       button.getAttribute("title"),
       "value" in button ? button.value : ""
     ].filter(Boolean).join(" "));
+  }
+
+  function getPseudoContent(element, pseudoElement) {
+    try {
+      const content = window.getComputedStyle(element, pseudoElement).content;
+      if (!content || content === "none" || content === '""' || content === "''") {
+        return "";
+      }
+
+      return content.replace(/^["']|["']$/g, "");
+    } catch {
+      return "";
+    }
   }
 
   function getFastCmpRoot() {
