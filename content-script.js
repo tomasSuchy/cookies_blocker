@@ -71,10 +71,33 @@
   }
 
   function getClickableText(element) {
+    const beforeContent = getPseudoContent(element, "::before");
+    const afterContent = getPseudoContent(element, "::after");
     const aria = element.getAttribute("aria-label");
     const title = element.getAttribute("title");
     const value = "value" in element ? element.value : "";
-    return normalizeText([element.innerText, aria, title, value].filter(Boolean).join(" "));
+    return normalizeText([
+      element.innerText,
+      element.textContent,
+      beforeContent,
+      afterContent,
+      aria,
+      title,
+      value
+    ].filter(Boolean).join(" "));
+  }
+
+  function getPseudoContent(element, pseudoElement) {
+    try {
+      const content = window.getComputedStyle(element, pseudoElement).content;
+      if (!content || content === "none" || content === '""' || content === "''") {
+        return "";
+      }
+
+      return content.replace(/^["']|["']$/g, "");
+    } catch {
+      return "";
+    }
   }
 
   function findCandidateButton(root) {
@@ -240,7 +263,13 @@
       timeoutId = null;
     }
 
-    chrome.runtime.sendMessage({
+    const extensionRuntime = globalThis.chrome?.runtime;
+    if (!extensionRuntime?.sendMessage) {
+      console.warn(`${LOG_PREFIX} Extension messaging API is unavailable`);
+      return;
+    }
+
+    extensionRuntime.sendMessage({
       type: "cookies-blocker-result",
       status,
       mode
