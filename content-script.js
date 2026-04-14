@@ -6,26 +6,28 @@
 
   const LOG_PREFIX = "[Cookies Blocker]";
   const BUTTON_TEXT_PATTERNS = [
-    "reject",
     "odmitnout",
     "odmitnout vse",
     "zamitnout",
     "zamitnout vse",
     "nesouhlasit",
-    "only necessary",
     "pouze nezbytne",
+    "vse vypnout",
+    "reject",
+    "only necessary",
     "necessary only",
     "deny all",
     "decline",
     "refuse",
   ];
   const DETAILS_TEXT_PATTERNS = [
+    "nastaveni",
     "podrobne nastaveni",
     "details",
     "preferences",
     "manage preferences",
     "customize",
-    "customise"
+    "customise",
   ];
   const CMP_HANDLERS = (window.CookiesBlockerCmpHandlers || []).slice();
   let finished = false;
