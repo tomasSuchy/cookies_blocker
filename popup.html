@@ -67,6 +67,27 @@
         font-size: 12px;
         color: #58627a;
       }
+
+      .actions {
+        margin-top: 14px;
+      }
+
+      .secondary-button {
+        width: 100%;
+        border: 1px solid #c8d2e6;
+        border-radius: 10px;
+        background: #ffffff;
+        color: #172033;
+        font-size: 13px;
+        font-weight: 700;
+        padding: 10px 12px;
+        cursor: pointer;
+      }
+
+      .secondary-button:disabled {
+        opacity: 0.6;
+        cursor: default;
+      }
     </style>
   </head>
   <body>
@@ -80,6 +101,9 @@
       <p id="log-status" class="log-status">No data yet.</p>
       <p id="log-message" class="log-message"></p>
       <p id="log-meta" class="log-meta"></p>
+    </section>
+    <section class="actions">
+      <button id="reset-domain" class="secondary-button" type="button">Reset consent for this site</button>
     </section>
     <script src="popup.js"></script>
   </body>

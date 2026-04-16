@@ -2,6 +2,8 @@
 
 Chrome extension (Manifest V3), která automaticky odmítá cookie bannery a volitelně smaže cookies při odchodu z domény.
 
+Popup obsahuje i akci `Reset consent for this site`, která smaže cookies pro aktuální doménu, vyčistí `localStorage` a `sessionStorage` v aktivním tabu a stránku znovu načte.
+
 Ikona v toolbaru:
 
 * `...` = detekce právě běží
@@ -19,4 +21,4 @@ Ikona v toolbaru:
 
 * Bannery uvnitř cross-origin iframe nemusí být přístupné content scriptu.
 * Některé weby používají vlastní CMP nebo nestandardní texty tlačítek, takže nemusí být pokryté.
-* Cleanup řeší jen cookies přes `chrome.cookies`; nemaže `localStorage`, `sessionStorage` ani IndexedDB.
+* Reset z popupu maže cookies a web storage jen pro právě otevřený tab; nemaže IndexedDB ani jiná site data mimo dosah skriptu.

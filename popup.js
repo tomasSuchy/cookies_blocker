@@ -4,6 +4,7 @@ const toggle = document.getElementById("cleanup-toggle");
 const logStatus = document.getElementById("log-status");
 const logMessage = document.getElementById("log-message");
 const logMeta = document.getElementById("log-meta");
+const resetButton = document.getElementById("reset-domain");
 
 async function initialize() {
   const stored = await chrome.storage.sync.get(CLEANUP_STORAGE_KEY);
@@ -15,6 +16,26 @@ toggle.addEventListener("change", async () => {
   await chrome.storage.sync.set({
     [CLEANUP_STORAGE_KEY]: toggle.checked
   });
+});
+
+resetButton.addEventListener("click", async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !tab.url) {
+    return;
+  }
+
+  resetButton.disabled = true;
+
+  try {
+    await chrome.runtime.sendMessage({
+      type: "cookies-blocker-reset-domain",
+      tabId: tab.id,
+      url: tab.url
+    });
+    window.close();
+  } finally {
+    resetButton.disabled = false;
+  }
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -64,6 +85,9 @@ function formatStatus(status) {
   }
   if (status === "pending") {
     return "Running";
+  }
+  if (status === "paused") {
+    return "Paused";
   }
   return "Unknown";
 }
