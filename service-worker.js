@@ -1,8 +1,10 @@
 const CLEANUP_STORAGE_KEY = "cleanupOnDomainExit";
 const DEFAULT_CLEANUP_ENABLED = false;
 const TAB_LOGS_STORAGE_KEY = "tabLogs";
+const PAUSED_AUTO_REJECT_STORAGE_KEY = "pausedAutoReject";
 const tabHostnames = new Map();
 const tabResultStates = new Map();
+const pausedAutoReject = new Map();
 const INJECTED_FILES = [
   "cmp/onetrust.js",
   "cmp/cookiebot.js",
@@ -56,6 +58,7 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
   const hostname = tabHostnames.get(tabId);
   tabHostnames.delete(tabId);
   tabResultStates.delete(tabId);
+  await clearPausedAutoReject(tabId);
   await removeTabLog(tabId);
   if (!hostname) {
     return;
@@ -76,10 +79,16 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
 
   if (!nextHostname) {
     tabHostnames.delete(details.tabId);
+    await clearPausedAutoReject(details.tabId);
     return;
   }
 
   tabHostnames.set(details.tabId, nextHostname);
+
+  const pausedHostname = pausedAutoReject.get(details.tabId);
+  if (pausedHostname && pausedHostname !== nextHostname) {
+    await clearPausedAutoReject(details.tabId);
+  }
 
   if (previousHostname && previousHostname !== nextHostname && await isCleanupEnabled()) {
     await clearCookiesForHostname(previousHostname);
@@ -100,6 +109,19 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 
   if (!isInjectableUrl(tab.url)) {
+    return;
+  }
+
+  if (hostname && pausedAutoReject.get(tabId) === hostname) {
+    await setIconState(tabId, "idle");
+    tabResultStates.delete(tabId);
+    await writeTabLog(tabId, {
+      status: "paused",
+      mode: "paused",
+      url: tab.url,
+      hostname,
+      message: "Auto-reject is paused for this tab so you can choose consent manually."
+    });
     return;
   }
 
@@ -132,7 +154,29 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "cookies-blocker-reset-domain") {
+    void handleResetDomain(message, sendResponse);
+    return true;
+  }
+
+  if (message?.type === "cookies-blocker-is-paused") {
+    const senderHostname = typeof message.hostname === "string" ? message.hostname : "";
+    const paused = Boolean(
+      sender.tab?.id &&
+      senderHostname &&
+      pausedAutoReject.get(sender.tab.id) === senderHostname
+    );
+    sendResponse({ paused });
+    return;
+  }
+
   if (message?.type !== "cookies-blocker-result" || !sender.tab?.id) {
+    return;
+  }
+
+  const messageHostname = sender.tab.url ? getHostnameFromUrl(sender.tab.url) : null;
+  if (messageHostname && pausedAutoReject.get(sender.tab.id) === messageHostname) {
+    sendResponse({ ok: true, ignored: true, paused: true });
     return;
   }
 
@@ -157,6 +201,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   ]);
   sendResponse({ ok: true });
 });
+
+async function handleResetDomain(message, sendResponse) {
+  try {
+    const tabId = Number(message.tabId);
+    const url = typeof message.url === "string" ? message.url : "";
+    const hostname = getHostnameFromUrl(url);
+
+    if (!tabId || !hostname) {
+      sendResponse({ ok: false, error: "Missing tab or hostname." });
+      return;
+    }
+
+    await clearCookiesForHostname(hostname);
+    await clearTabStorage(tabId);
+    await setPausedAutoReject(tabId, hostname);
+    await setIconState(tabId, "idle");
+    tabResultStates.delete(tabId);
+    await writeTabLog(tabId, {
+      status: "paused",
+      mode: "reset",
+      url,
+      hostname,
+      message: "Consent data reset. Reloading page."
+    });
+    await chrome.tabs.reload(tabId);
+    sendResponse({ ok: true });
+  } catch (error) {
+    console.warn("[Cookies Blocker] Failed to reset domain state", error);
+    sendResponse({ ok: false, error: String(error) });
+  }
+}
 
 async function initializeTrackedTabs() {
   const tabs = await chrome.tabs.query({});
@@ -256,6 +331,25 @@ async function removeCookie(cookie) {
   }
 }
 
+async function clearTabStorage(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      func: () => {
+        try {
+          window.localStorage?.clear();
+        } catch {}
+
+        try {
+          window.sessionStorage?.clear();
+        } catch {}
+      }
+    });
+  } catch (error) {
+    console.warn("[Cookies Blocker] Failed to clear tab storage", error);
+  }
+}
+
 async function setIconState(tabId, status) {
   const style = ICON_STYLES[status];
   if (!style) {
@@ -338,6 +432,8 @@ function getResultMessage(status, mode) {
   }
 
   const messages = {
+    paused: "Auto-reject is paused for this tab so you can choose consent manually.",
+    reset: "Consent data reset. Reloading page.",
     dom: "Rejected cookies using a visible page button.",
     "dom-details": "Opened detailed settings and rejected cookies.",
     "dom-fallback": "Rejected cookies using a page-wide fallback button.",
@@ -350,4 +446,24 @@ function getResultMessage(status, mode) {
   };
 
   return messages[mode] || "Rejected cookies successfully.";
+}
+
+async function setPausedAutoReject(tabId, hostname) {
+  pausedAutoReject.set(tabId, hostname);
+  const stored = await chrome.storage.local.get(PAUSED_AUTO_REJECT_STORAGE_KEY);
+  const entries = stored[PAUSED_AUTO_REJECT_STORAGE_KEY] || {};
+  entries[String(tabId)] = hostname;
+  await chrome.storage.local.set({ [PAUSED_AUTO_REJECT_STORAGE_KEY]: entries });
+}
+
+async function clearPausedAutoReject(tabId) {
+  pausedAutoReject.delete(tabId);
+  const stored = await chrome.storage.local.get(PAUSED_AUTO_REJECT_STORAGE_KEY);
+  const entries = stored[PAUSED_AUTO_REJECT_STORAGE_KEY] || {};
+  if (!entries[String(tabId)]) {
+    return;
+  }
+
+  delete entries[String(tabId)];
+  await chrome.storage.local.set({ [PAUSED_AUTO_REJECT_STORAGE_KEY]: entries });
 }

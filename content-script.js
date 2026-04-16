@@ -11,6 +11,7 @@
     "zamitnout",
     "zamitnout vse",
     "nesouhlasit",
+    "nesouhlasim",
     "pouze nezbytne",
     "vse vypnout",
     "reject",
@@ -21,8 +22,10 @@
     "refuse",
   ];
   const DETAILS_TEXT_PATTERNS = [
-    "nastaveni",
     "podrobne nastaveni",
+    "nastaveni souboru cookies",
+    "cookie settings",
+    "privacy settings",
     "details",
     "preferences",
     "manage preferences",
@@ -107,6 +110,10 @@
   }
 
   function findDetailsButton(root) {
+    if (!(root instanceof HTMLElement) || !looksLikeCookieBanner(root)) {
+      return null;
+    }
+
     return findButtonByPatterns(root, DETAILS_TEXT_PATTERNS);
   }
 
@@ -116,7 +123,8 @@
       "input[type='button']",
       "input[type='submit']",
       "[role='button']",
-      "a[role='button']"
+      "a[role='button']",
+      "a[href]"
     ];
     const elements = root.querySelectorAll(selectors.join(","));
 
@@ -155,9 +163,9 @@
     for (const root of bannerCandidates) {
       const button = findCandidateButton(root);
       if (button) {
+        reportResult("success", "dom");
         button.click();
         console.log(`${LOG_PREFIX} DOM strategy matched`, button);
-        reportResult("success", "dom");
         return true;
       }
     }
@@ -171,35 +179,21 @@
       detailsButton.click();
       console.log(`${LOG_PREFIX} Opened detailed settings`, detailsButton);
 
-      const retryButton = findCandidateButton(root) || findCandidateButton(document.body);
+      const retryButton = findCandidateButton(root);
       if (retryButton) {
+        reportResult("success", "dom-details");
         retryButton.click();
         console.log(`${LOG_PREFIX} DOM strategy matched after opening details`, retryButton);
-        reportResult("success", "dom-details");
         return true;
       }
     }
 
     const fallbackButton = findCandidateButton(document.body);
     if (fallbackButton) {
+      reportResult("success", "dom-fallback");
       fallbackButton.click();
       console.log(`${LOG_PREFIX} DOM fallback matched`, fallbackButton);
-      reportResult("success", "dom-fallback");
       return true;
-    }
-
-    const fallbackDetailsButton = findDetailsButton(document.body);
-    if (fallbackDetailsButton) {
-      fallbackDetailsButton.click();
-      console.log(`${LOG_PREFIX} Opened detailed settings fallback`, fallbackDetailsButton);
-
-      const retryButton = findCandidateButton(document.body);
-      if (retryButton) {
-        retryButton.click();
-        console.log(`${LOG_PREFIX} DOM fallback matched after opening details`, retryButton);
-        reportResult("success", "dom-fallback-details");
-        return true;
-      }
     }
 
     return false;
@@ -278,35 +272,62 @@
     }).catch(() => {});
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", scheduleRun, { once: true });
-  } else {
-    scheduleRun();
+  void initialize();
+
+  async function initialize() {
+    if (await isAutoRejectPaused()) {
+      finished = true;
+      console.log(`${LOG_PREFIX} Auto-reject is paused for this tab`);
+      return;
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", scheduleRun, { once: true });
+    } else {
+      scheduleRun();
+    }
+
+    const observer = new MutationObserver(() => {
+      if (finished) {
+        observer.disconnect();
+        return;
+      }
+
+      scheduleRun();
+    });
+
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true
+    });
+
+    window.addEventListener("load", scheduleRun, { once: true });
+
+    timeoutId = window.setTimeout(() => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
+      observer.disconnect();
+      reportResult("failure", "timeout");
+    }, 8000);
   }
 
-  const observer = new MutationObserver(() => {
-    if (finished) {
-      observer.disconnect();
-      return;
+  async function isAutoRejectPaused() {
+    const extensionRuntime = globalThis.chrome?.runtime;
+    if (!extensionRuntime?.sendMessage) {
+      return false;
     }
 
-    scheduleRun();
-  });
-
-  observer.observe(document.documentElement, {
-    childList: true,
-    subtree: true
-  });
-
-  window.addEventListener("load", scheduleRun, { once: true });
-
-  timeoutId = window.setTimeout(() => {
-    if (finished) {
-      return;
+    try {
+      const response = await extensionRuntime.sendMessage({
+        type: "cookies-blocker-is-paused",
+        hostname: window.location.hostname
+      });
+      return Boolean(response?.paused);
+    } catch {
+      return false;
     }
-
-    finished = true;
-    observer.disconnect();
-    reportResult("failure", "timeout");
-  }, 8000);
+  }
 })();
