@@ -17,6 +17,8 @@
     "reject",
     "only necessary",
     "necessary only",
+    "accept essential",
+    "accept essential only",
     "deny all",
     "decline",
     "refuse",
@@ -261,7 +263,6 @@
 
     const extensionRuntime = globalThis.chrome?.runtime;
     if (!extensionRuntime?.sendMessage) {
-      console.warn(`${LOG_PREFIX} Extension messaging API is unavailable`);
       return;
     }
 
@@ -275,6 +276,11 @@
   void initialize();
 
   async function initialize() {
+    if (!isSupportedPage()) {
+      finished = true;
+      return;
+    }
+
     if (await isAutoRejectPaused()) {
       finished = true;
       console.log(`${LOG_PREFIX} Auto-reject is paused for this tab`);
@@ -329,5 +335,17 @@
     } catch {
       return false;
     }
+  }
+
+  function isSupportedPage() {
+    if (window.location.protocol !== "http:" && window.location.protocol !== "https:") {
+      return false;
+    }
+
+    if (window.location.hostname === "chromewebstore.google.com") {
+      return false;
+    }
+
+    return true;
   }
 })();
