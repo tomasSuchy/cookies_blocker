@@ -88,6 +88,18 @@
         opacity: 0.6;
         cursor: default;
       }
+
+      .button-stack {
+        display: grid;
+        gap: 10px;
+      }
+
+      .helper-text {
+        margin: -2px 0 0;
+        font-size: 12px;
+        line-height: 1.4;
+        color: #58627a;
+      }
     </style>
   </head>
   <body>
@@ -96,14 +108,16 @@
       <span>Enable cleanup on domain exit</span>
     </label>
     <p>Deletes cookies for the previous domain when you leave it or close the tab.</p>
+    <section class="actions button-stack">
+      <button id="reset-domain" class="secondary-button" type="button">Reset consent for this site</button>
+      <button id="manage-patterns" class="secondary-button" type="button">Manage text patterns</button>
+      <p class="helper-text">Add your own button texts for reject actions and cookie settings links when a site uses wording that is not covered by the built-in patterns.</p>
+    </section>
     <section class="log-card">
       <h1 class="log-title">Last Result</h1>
       <p id="log-status" class="log-status">No data yet.</p>
       <p id="log-message" class="log-message"></p>
       <p id="log-meta" class="log-meta"></p>
-    </section>
-    <section class="actions">
-      <button id="reset-domain" class="secondary-button" type="button">Reset consent for this site</button>
     </section>
     <script src="popup.js"></script>
   </body>

@@ -5,7 +5,9 @@
   window.__cookiesBlockerInitialized = true;
 
   const LOG_PREFIX = "[Cookies Blocker]";
-  const BUTTON_TEXT_PATTERNS = [
+  const CUSTOM_BUTTON_PATTERNS_STORAGE_KEY = "customButtonTextPatterns";
+  const CUSTOM_DETAILS_PATTERNS_STORAGE_KEY = "customDetailsTextPatterns";
+  const DEFAULT_BUTTON_TEXT_PATTERNS = [
     "odmitnout",
     "odmitnout vse",
     "zamitnout",
@@ -13,17 +15,22 @@
     "nesouhlasit",
     "nesouhlasim",
     "pouze nezbytne",
+    "prijmout jen nezbytne",
     "vse vypnout",
     "reject",
     "only necessary",
     "necessary only",
     "accept essential",
     "accept essential only",
+    "accept only essential cookies",
     "deny all",
     "decline",
     "refuse",
   ];
-  const DETAILS_TEXT_PATTERNS = [
+  const DEFAULT_DETAILS_TEXT_PATTERNS = [
+    "zobrazit",
+    "zobrazit nastaveni",
+    "zobrazit podrobnosti",
     "podrobne nastaveni",
     "nastaveni souboru cookies",
     "cookie settings",
@@ -35,6 +42,8 @@
     "customise",
   ];
   const CMP_HANDLERS = (window.CookiesBlockerCmpHandlers || []).slice();
+  let buttonTextPatterns = DEFAULT_BUTTON_TEXT_PATTERNS.slice();
+  let detailsTextPatterns = DEFAULT_DETAILS_TEXT_PATTERNS.slice();
   let finished = false;
   let runScheduled = false;
   let noMatchLogged = false;
@@ -108,7 +117,7 @@
   }
 
   function findCandidateButton(root) {
-    return findButtonByPatterns(root, BUTTON_TEXT_PATTERNS);
+    return findButtonByPatterns(root, buttonTextPatterns);
   }
 
   function findDetailsButton(root) {
@@ -116,7 +125,7 @@
       return null;
     }
 
-    return findButtonByPatterns(root, DETAILS_TEXT_PATTERNS);
+    return findButtonByPatterns(root, detailsTextPatterns);
   }
 
   function findButtonByPatterns(root, patterns) {
@@ -281,6 +290,8 @@
       return;
     }
 
+    await loadCustomPatterns();
+
     if (await isAutoRejectPaused()) {
       finished = true;
       console.log(`${LOG_PREFIX} Auto-reject is paused for this tab`);
@@ -335,6 +346,45 @@
     } catch {
       return false;
     }
+  }
+
+  async function loadCustomPatterns() {
+    const extensionStorage = globalThis.chrome?.storage?.sync;
+    if (!extensionStorage?.get) {
+      return;
+    }
+
+    try {
+      const stored = await extensionStorage.get([
+        CUSTOM_BUTTON_PATTERNS_STORAGE_KEY,
+        CUSTOM_DETAILS_PATTERNS_STORAGE_KEY
+      ]);
+      buttonTextPatterns = mergePatterns(
+        DEFAULT_BUTTON_TEXT_PATTERNS,
+        stored[CUSTOM_BUTTON_PATTERNS_STORAGE_KEY]
+      );
+      detailsTextPatterns = mergePatterns(
+        DEFAULT_DETAILS_TEXT_PATTERNS,
+        stored[CUSTOM_DETAILS_PATTERNS_STORAGE_KEY]
+      );
+    } catch {
+      buttonTextPatterns = DEFAULT_BUTTON_TEXT_PATTERNS.slice();
+      detailsTextPatterns = DEFAULT_DETAILS_TEXT_PATTERNS.slice();
+    }
+  }
+
+  function mergePatterns(defaultPatterns, customPatterns) {
+    const merged = new Set(defaultPatterns.map(normalizeText));
+    if (Array.isArray(customPatterns)) {
+      for (const pattern of customPatterns) {
+        const normalizedPattern = normalizeText(pattern);
+        if (normalizedPattern) {
+          merged.add(normalizedPattern);
+        }
+      }
+    }
+
+    return Array.from(merged);
   }
 
   function isSupportedPage() {

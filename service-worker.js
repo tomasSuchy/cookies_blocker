@@ -54,6 +54,18 @@ chrome.runtime.onStartup.addListener(() => {
   void initializeTrackedTabs();
 });
 
+async function getExistingTab(tabId) {
+  try {
+    return await chrome.tabs.get(tabId);
+  } catch {
+    return null;
+  }
+}
+
+async function tabExists(tabId) {
+  return Boolean(await getExistingTab(tabId));
+}
+
 chrome.tabs.onRemoved.addListener(async (tabId) => {
   const hostname = tabHostnames.get(tabId);
   tabHostnames.delete(tabId);
@@ -94,7 +106,9 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
     await clearCookiesForHostname(previousHostname);
   }
 
-  await setIconState(details.tabId, "idle");
+  if (await tabExists(details.tabId)) {
+    await setIconState(details.tabId, "idle");
+  }
   tabResultStates.delete(details.tabId);
 });
 
@@ -113,6 +127,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 
   if (hostname && pausedAutoReject.get(tabId) === hostname) {
+    if (!await tabExists(tabId)) {
+      return;
+    }
+
     await setIconState(tabId, "idle");
     tabResultStates.delete(tabId);
     await writeTabLog(tabId, {
@@ -126,6 +144,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   }
 
   try {
+    if (!await tabExists(tabId)) {
+      return;
+    }
+
     await setIconState(tabId, "pending");
     tabResultStates.set(tabId, "pending");
     await writeTabLog(tabId, {
@@ -140,6 +162,10 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       files: INJECTED_FILES
     });
   } catch (error) {
+    if (!await tabExists(tabId)) {
+      return;
+    }
+
     await setIconState(tabId, "failure");
     tabResultStates.set(tabId, "failure");
     await writeTabLog(tabId, {
@@ -190,8 +216,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   tabResultStates.set(sender.tab.id, status);
   void Promise.all([
-    setIconState(sender.tab.id, status),
-    writeTabLog(sender.tab.id, {
+    safeSetIconState(sender.tab.id, status),
+    safeWriteTabLog(sender.tab.id, {
       status,
       mode: message.mode,
       url: sender.tab.url,
@@ -213,6 +239,11 @@ async function handleResetDomain(message, sendResponse) {
       return;
     }
 
+    if (!await tabExists(tabId)) {
+      sendResponse({ ok: false, error: "Tab no longer exists." });
+      return;
+    }
+
     await clearCookiesForHostname(hostname);
     await clearTabStorage(tabId);
     await setPausedAutoReject(tabId, hostname);
@@ -225,7 +256,9 @@ async function handleResetDomain(message, sendResponse) {
       hostname,
       message: "Consent data reset. Reloading page."
     });
-    await chrome.tabs.reload(tabId);
+    if (await tabExists(tabId)) {
+      await chrome.tabs.reload(tabId);
+    }
     sendResponse({ ok: true });
   } catch (error) {
     console.warn("[Cookies Blocker] Failed to reset domain state", error);
@@ -333,6 +366,10 @@ async function removeCookie(cookie) {
 
 async function clearTabStorage(tabId) {
   try {
+    if (!await tabExists(tabId)) {
+      return;
+    }
+
     await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
       func: () => {
@@ -361,6 +398,14 @@ async function setIconState(tabId, status) {
     imageData: createIconSet(style)
   });
   await chrome.action.setTitle({ tabId, title: style.title });
+}
+
+async function safeSetIconState(tabId, status) {
+  if (!await tabExists(tabId)) {
+    return;
+  }
+
+  await setIconState(tabId, status);
 }
 
 function createIconSet(style) {
@@ -409,6 +454,14 @@ async function writeTabLog(tabId, entry) {
   };
 
   await chrome.storage.local.set({ [TAB_LOGS_STORAGE_KEY]: tabLogs });
+}
+
+async function safeWriteTabLog(tabId, entry) {
+  if (!await tabExists(tabId)) {
+    return;
+  }
+
+  await writeTabLog(tabId, entry);
 }
 
 async function removeTabLog(tabId) {
