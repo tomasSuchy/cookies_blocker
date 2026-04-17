@@ -2,6 +2,10 @@ const CLEANUP_STORAGE_KEY = "cleanupOnDomainExit";
 const DEFAULT_CLEANUP_ENABLED = false;
 const TAB_LOGS_STORAGE_KEY = "tabLogs";
 const PAUSED_AUTO_REJECT_STORAGE_KEY = "pausedAutoReject";
+const SITE_RULES_STORAGE_KEY = "siteRules";
+const DEBUG_HISTORY_ENABLED_STORAGE_KEY = "debugHistoryEnabled";
+const DEBUG_HISTORY_STORAGE_KEY = "debugHistory";
+const MAX_DEBUG_EVENTS_PER_HOST = 30;
 const tabHostnames = new Map();
 const tabResultStates = new Map();
 const pausedAutoReject = new Map();
@@ -42,9 +46,27 @@ const ICON_STYLES = {
 const ICON_SIZES = [16, 32];
 
 chrome.runtime.onInstalled.addListener(async () => {
-  const stored = await chrome.storage.sync.get(CLEANUP_STORAGE_KEY);
+  const stored = await chrome.storage.sync.get([
+    CLEANUP_STORAGE_KEY,
+    DEBUG_HISTORY_ENABLED_STORAGE_KEY,
+    SITE_RULES_STORAGE_KEY
+  ]);
+  const updates = {};
+
   if (typeof stored[CLEANUP_STORAGE_KEY] !== "boolean") {
-    await chrome.storage.sync.set({ [CLEANUP_STORAGE_KEY]: DEFAULT_CLEANUP_ENABLED });
+    updates[CLEANUP_STORAGE_KEY] = DEFAULT_CLEANUP_ENABLED;
+  }
+
+  if (typeof stored[DEBUG_HISTORY_ENABLED_STORAGE_KEY] !== "boolean") {
+    updates[DEBUG_HISTORY_ENABLED_STORAGE_KEY] = false;
+  }
+
+  if (!stored[SITE_RULES_STORAGE_KEY] || typeof stored[SITE_RULES_STORAGE_KEY] !== "object") {
+    updates[SITE_RULES_STORAGE_KEY] = {};
+  }
+
+  if (Object.keys(updates).length > 0) {
+    await chrome.storage.sync.set(updates);
   }
 
   await initializeTrackedTabs();
@@ -143,6 +165,20 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     return;
   }
 
+  const siteRule = hostname ? await getSiteRule(hostname) : "default";
+  if (siteRule === "disabled") {
+    await safeSetIconState(tabId, "idle");
+    tabResultStates.delete(tabId);
+    await safeWriteTabLog(tabId, {
+      status: "paused",
+      mode: "site-rule-disabled",
+      url: tab.url,
+      hostname,
+      message: "Auto-reject is disabled for this site."
+    });
+    return;
+  }
+
   try {
     if (!await tabExists(tabId)) {
       return;
@@ -185,15 +221,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "cookies-blocker-is-paused") {
-    const senderHostname = typeof message.hostname === "string" ? message.hostname : "";
-    const paused = Boolean(
-      sender.tab?.id &&
-      senderHostname &&
-      pausedAutoReject.get(sender.tab.id) === senderHostname
-    );
-    sendResponse({ paused });
-    return;
+  if (message?.type === "cookies-blocker-get-page-config") {
+    void handleGetPageConfig(message, sender, sendResponse);
+    return true;
+  }
+
+  if (message?.type === "cookies-blocker-debug-event") {
+    void handleDebugEvent(message, sender, sendResponse);
+    return true;
   }
 
   if (message?.type !== "cookies-blocker-result" || !sender.tab?.id) {
@@ -228,6 +263,53 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   sendResponse({ ok: true });
 });
 
+async function handleGetPageConfig(message, sender, sendResponse) {
+  const senderHostname = typeof message.hostname === "string" ? message.hostname : "";
+  const paused = Boolean(
+    sender.tab?.id &&
+    senderHostname &&
+    pausedAutoReject.get(sender.tab.id) === senderHostname
+  );
+
+  sendResponse({
+    paused,
+    siteRule: senderHostname ? await getSiteRule(senderHostname) : "default",
+    debugEnabled: await isDebugHistoryEnabled()
+  });
+}
+
+async function handleDebugEvent(message, sender, sendResponse) {
+  try {
+    if (!await isDebugHistoryEnabled()) {
+      sendResponse({ ok: true, skipped: true });
+      return;
+    }
+
+    const hostname = typeof message.hostname === "string"
+      ? message.hostname
+      : sender.tab?.url
+        ? getHostnameFromUrl(sender.tab.url)
+        : null;
+
+    if (!hostname) {
+      sendResponse({ ok: false, error: "Missing hostname." });
+      return;
+    }
+
+    await writeDebugEvent(hostname, {
+      type: message.eventType || "info",
+      strategy: message.strategy || "",
+      detail: message.detail || "",
+      url: sender.tab?.url || "",
+      frameUrl: sender.url || "",
+      tabId: sender.tab?.id || null
+    });
+    sendResponse({ ok: true });
+  } catch (error) {
+    sendResponse({ ok: false, error: String(error) });
+  }
+}
+
 async function handleResetDomain(message, sendResponse) {
   try {
     const tabId = Number(message.tabId);
@@ -247,9 +329,9 @@ async function handleResetDomain(message, sendResponse) {
     await clearCookiesForHostname(hostname);
     await clearTabStorage(tabId);
     await setPausedAutoReject(tabId, hostname);
-    await setIconState(tabId, "idle");
+    await safeSetIconState(tabId, "idle");
     tabResultStates.delete(tabId);
-    await writeTabLog(tabId, {
+    await safeWriteTabLog(tabId, {
       status: "paused",
       mode: "reset",
       url,
@@ -283,6 +365,17 @@ async function initializeTrackedTabs() {
 async function isCleanupEnabled() {
   const stored = await chrome.storage.sync.get(CLEANUP_STORAGE_KEY);
   return Boolean(stored[CLEANUP_STORAGE_KEY]);
+}
+
+async function isDebugHistoryEnabled() {
+  const stored = await chrome.storage.sync.get(DEBUG_HISTORY_ENABLED_STORAGE_KEY);
+  return Boolean(stored[DEBUG_HISTORY_ENABLED_STORAGE_KEY]);
+}
+
+async function getSiteRule(hostname) {
+  const stored = await chrome.storage.sync.get(SITE_RULES_STORAGE_KEY);
+  const siteRules = stored[SITE_RULES_STORAGE_KEY] || {};
+  return siteRules[hostname] || "default";
 }
 
 function isInjectableUrl(url) {
@@ -519,4 +612,20 @@ async function clearPausedAutoReject(tabId) {
 
   delete entries[String(tabId)];
   await chrome.storage.local.set({ [PAUSED_AUTO_REJECT_STORAGE_KEY]: entries });
+}
+
+async function writeDebugEvent(hostname, event) {
+  const stored = await chrome.storage.local.get(DEBUG_HISTORY_STORAGE_KEY);
+  const debugHistory = stored[DEBUG_HISTORY_STORAGE_KEY] || {};
+  const existingEvents = Array.isArray(debugHistory[hostname]) ? debugHistory[hostname] : [];
+  const nextEvents = [
+    {
+      ...event,
+      createdAt: new Date().toISOString()
+    },
+    ...existingEvents
+  ].slice(0, MAX_DEBUG_EVENTS_PER_HOST);
+
+  debugHistory[hostname] = nextEvents;
+  await chrome.storage.local.set({ [DEBUG_HISTORY_STORAGE_KEY]: debugHistory });
 }

@@ -6,7 +6,9 @@ const RISKY_DETAILS_PATTERNS = [
   "zobrazit",
   "show",
   "details",
-  "preferences"
+  "preferences",
+  "customize",
+  "customise"
 ];
 
 const buttonPatternsField = document.getElementById("button-patterns");
