@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cookies Blocker Settings</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", sans-serif;
+        --page-bg: #eef3fb;
+        --panel-bg: #ffffff;
+        --panel-border: #d7dfef;
+        --text: #172033;
+        --muted: #5f6983;
+        --primary: #2653d4;
+        --primary-dark: #1d43b0;
+        --warning-bg: #fff5d6;
+        --warning-border: #f3d37a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 32px 20px;
+        background:
+          radial-gradient(circle at top right, rgba(38, 83, 212, 0.12), transparent 28%),
+          linear-gradient(180deg, #f6f9ff 0%, var(--page-bg) 100%);
+        color: var(--text);
+      }
+
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 28px;
+      }
+
+      .lede {
+        margin: 0 0 24px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        gap: 18px;
+      }
+
+      .panel {
+        padding: 18px;
+        border: 1px solid var(--panel-border);
+        border-radius: 16px;
+        background: var(--panel-bg);
+        box-shadow: 0 10px 30px rgba(18, 31, 61, 0.06);
+      }
+
+      h2 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 0 0 12px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 180px;
+        resize: vertical;
+        padding: 12px;
+        border: 1px solid #c9d4e8;
+        border-radius: 12px;
+        background: #fbfcff;
+        color: var(--text);
+        font: 13px/1.45 Consolas, "Courier New", monospace;
+      }
+
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 18px;
+      }
+
+      button {
+        border: 0;
+        border-radius: 12px;
+        padding: 11px 16px;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .primary {
+        background: var(--primary);
+        color: #ffffff;
+      }
+
+      .primary:hover {
+        background: var(--primary-dark);
+      }
+
+      .secondary {
+        background: #e7edf9;
+        color: #23408a;
+      }
+
+      .status {
+        min-height: 20px;
+        margin-top: 14px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .status.success {
+        color: #127044;
+      }
+
+      .status.error {
+        color: #b42318;
+      }
+
+      .warning {
+        margin-top: 14px;
+        padding: 12px;
+        border: 1px solid var(--warning-border);
+        border-radius: 12px;
+        background: var(--warning-bg);
+        color: #6f5300;
+        font-size: 13px;
+      }
+
+      .warning:empty,
+      .status:empty {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Pattern Settings</h1>
+      <p class="lede">Custom text patterns are merged with built-in defaults. Add one phrase per line.</p>
+
+      <section class="grid">
+        <article class="panel">
+          <h2>Reject Button Patterns</h2>
+          <p>Use phrases that indicate reject, deny or necessary-only actions.</p>
+          <textarea id="button-patterns" spellcheck="false"></textarea>
+        </article>
+
+        <article class="panel">
+          <h2>Details Button Patterns</h2>
+          <p>Use only cookie-related settings phrases. Generic words like <code>nastaveni</code> are risky.</p>
+          <textarea id="details-patterns" spellcheck="false"></textarea>
+          <div id="details-warning" class="warning"></div>
+        </article>
+      </section>
+
+      <section class="actions">
+        <button id="save-patterns" class="primary" type="button">Save patterns</button>
+        <button id="clear-patterns" class="secondary" type="button">Clear custom patterns</button>
+      </section>
+
+      <div id="status" class="status"></div>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

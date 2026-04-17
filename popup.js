@@ -5,6 +5,7 @@ const logStatus = document.getElementById("log-status");
 const logMessage = document.getElementById("log-message");
 const logMeta = document.getElementById("log-meta");
 const resetButton = document.getElementById("reset-domain");
+const managePatternsButton = document.getElementById("manage-patterns");
 
 async function initialize() {
   const stored = await chrome.storage.sync.get(CLEANUP_STORAGE_KEY);
@@ -36,6 +37,11 @@ resetButton.addEventListener("click", async () => {
   } finally {
     resetButton.disabled = false;
   }
+});
+
+managePatternsButton.addEventListener("click", async () => {
+  await chrome.runtime.openOptionsPage();
+  window.close();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
