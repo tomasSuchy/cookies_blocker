@@ -410,6 +410,10 @@
   }
 
   function isSupportedPage() {
+    if (window.location.protocol === "about:") {
+      return window !== window.top;
+    }
+
     if (window.location.protocol !== "http:" && window.location.protocol !== "https:") {
       return false;
     }
