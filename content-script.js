@@ -28,20 +28,22 @@
     "refuse",
   ];
   const DEFAULT_DETAILS_TEXT_PATTERNS = [
-    "zobrazit",
     "zobrazit nastaveni",
     "zobrazit podrobnosti",
     "podrobne nastaveni",
     "nastaveni souboru cookies",
     "cookie settings",
     "privacy settings",
-    "details",
-    "preferences",
     "manage preferences",
     "customize",
     "customise",
   ];
   const CMP_HANDLERS = (window.CookiesBlockerCmpHandlers || []).slice();
+  const pageConfig = {
+    paused: false,
+    siteRule: "default",
+    debugEnabled: false
+  };
   let buttonTextPatterns = DEFAULT_BUTTON_TEXT_PATTERNS.slice();
   let detailsTextPatterns = DEFAULT_DETAILS_TEXT_PATTERNS.slice();
   let finished = false;
@@ -169,12 +171,18 @@
   }
 
   function tryDomStrategy() {
+    if (pageConfig.siteRule === "cmp-only" || pageConfig.siteRule === "disabled") {
+      debugEvent("skip", "dom", `Skipped DOM strategy due to site rule: ${pageConfig.siteRule}`);
+      return false;
+    }
+
     const bannerCandidates = Array.from(document.querySelectorAll("body, body *")).filter(looksLikeCookieBanner);
 
     for (const root of bannerCandidates) {
       const button = findCandidateButton(root);
       if (button) {
         reportResult("success", "dom");
+        debugEvent("match", "dom", `Clicked ${describeElement(button)}`);
         button.click();
         console.log(`${LOG_PREFIX} DOM strategy matched`, button);
         return true;
@@ -188,46 +196,50 @@
       }
 
       detailsButton.click();
+      debugEvent("step", "dom-details", `Opened details via ${describeElement(detailsButton)}`);
       console.log(`${LOG_PREFIX} Opened detailed settings`, detailsButton);
 
       const retryButton = findCandidateButton(root);
       if (retryButton) {
         reportResult("success", "dom-details");
+        debugEvent("match", "dom-details", `Clicked ${describeElement(retryButton)}`);
         retryButton.click();
         console.log(`${LOG_PREFIX} DOM strategy matched after opening details`, retryButton);
         return true;
       }
     }
 
-    const fallbackButton = findCandidateButton(document.body);
-    if (fallbackButton) {
-      reportResult("success", "dom-fallback");
-      fallbackButton.click();
-      console.log(`${LOG_PREFIX} DOM fallback matched`, fallbackButton);
-      return true;
-    }
-
+    debugEvent("miss", "dom", "No DOM pattern matched.");
     return false;
   }
 
   async function tryCmpStrategy() {
+    if (pageConfig.siteRule === "dom-only" || pageConfig.siteRule === "disabled") {
+      debugEvent("skip", "cmp", `Skipped CMP strategy due to site rule: ${pageConfig.siteRule}`);
+      return false;
+    }
+
     for (const handler of CMP_HANDLERS) {
       try {
         if (!handler.matches()) {
           continue;
         }
 
+        debugEvent("step", "cmp", `CMP handler matched: ${handler.id}`);
         const handled = await handler.reject();
         if (handled) {
           console.log(`${LOG_PREFIX} CMP strategy matched ${handler.id}`);
+          debugEvent("match", "cmp", `CMP handler succeeded: ${handler.id}`);
           reportResult("success", handler.id);
           return true;
         }
       } catch (error) {
+        debugEvent("error", "cmp", `CMP handler failed: ${handler.id}`);
         console.warn(`${LOG_PREFIX} CMP handler failed: ${handler.id}`, error);
       }
     }
 
+    debugEvent("miss", "cmp", "No CMP handler matched.");
     return false;
   }
 
@@ -248,6 +260,7 @@
 
     if (!noMatchLogged) {
       console.log(`${LOG_PREFIX} No matching cookie rejection strategy found`);
+      debugEvent("miss", "final", "No matching cookie rejection strategy found.");
       noMatchLogged = true;
     }
   }
@@ -290,11 +303,15 @@
       return;
     }
 
+    await loadPageConfig();
     await loadCustomPatterns();
 
-    if (await isAutoRejectPaused()) {
+    if (pageConfig.paused || pageConfig.siteRule === "disabled") {
       finished = true;
-      console.log(`${LOG_PREFIX} Auto-reject is paused for this tab`);
+      debugEvent("skip", "init", pageConfig.paused
+        ? "Auto-reject is paused for this tab."
+        : "Auto-reject is disabled for this site.");
+      console.log(`${LOG_PREFIX} Auto-reject is paused or disabled for this tab`);
       return;
     }
 
@@ -327,24 +344,29 @@
 
       finished = true;
       observer.disconnect();
+      debugEvent("failure", "timeout", "Detection timed out without a match.");
       reportResult("failure", "timeout");
     }, 8000);
   }
 
-  async function isAutoRejectPaused() {
+  async function loadPageConfig() {
     const extensionRuntime = globalThis.chrome?.runtime;
     if (!extensionRuntime?.sendMessage) {
-      return false;
+      return;
     }
 
     try {
       const response = await extensionRuntime.sendMessage({
-        type: "cookies-blocker-is-paused",
+        type: "cookies-blocker-get-page-config",
         hostname: window.location.hostname
       });
-      return Boolean(response?.paused);
+      pageConfig.paused = Boolean(response?.paused);
+      pageConfig.siteRule = response?.siteRule || "default";
+      pageConfig.debugEnabled = Boolean(response?.debugEnabled);
     } catch {
-      return false;
+      pageConfig.paused = false;
+      pageConfig.siteRule = "default";
+      pageConfig.debugEnabled = false;
     }
   }
 
@@ -388,6 +410,10 @@
   }
 
   function isSupportedPage() {
+    if (window.location.protocol === "about:") {
+      return window !== window.top;
+    }
+
     if (window.location.protocol !== "http:" && window.location.protocol !== "https:") {
       return false;
     }
@@ -397,5 +423,33 @@
     }
 
     return true;
+  }
+
+  function describeElement(element) {
+    const text = getClickableText(element).slice(0, 80);
+    const id = element.id ? `#${element.id}` : "";
+    const className = typeof element.className === "string"
+      ? element.className.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((item) => `.${item}`).join("")
+      : "";
+    return `${element.tagName.toLowerCase()}${id}${className}${text ? ` "${text}"` : ""}`;
+  }
+
+  function debugEvent(eventType, strategy, detail) {
+    if (!pageConfig.debugEnabled) {
+      return;
+    }
+
+    const extensionRuntime = globalThis.chrome?.runtime;
+    if (!extensionRuntime?.sendMessage) {
+      return;
+    }
+
+    extensionRuntime.sendMessage({
+      type: "cookies-blocker-debug-event",
+      hostname: window.location.hostname,
+      eventType,
+      strategy,
+      detail
+    }).catch(() => {});
   }
 })();

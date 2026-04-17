@@ -100,6 +100,79 @@
         line-height: 1.4;
         color: #58627a;
       }
+
+      .site-card {
+        margin-top: 14px;
+        padding: 12px;
+        border-radius: 10px;
+        background: #ffffff;
+        border: 1px solid #d8dfed;
+      }
+
+      .site-title {
+        margin: 0 0 8px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #334155;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+
+      .site-host {
+        margin: 0 0 10px;
+        font-size: 13px;
+        font-weight: 700;
+        color: #172033;
+        word-break: break-word;
+      }
+
+      select {
+        width: 100%;
+        margin-top: 8px;
+        padding: 10px 12px;
+        border: 1px solid #c8d2e6;
+        border-radius: 10px;
+        background: #ffffff;
+        color: #172033;
+        font-size: 13px;
+      }
+
+      .inline-toggle {
+        margin-top: 12px;
+      }
+
+      .inline-toggle span {
+        font-weight: 600;
+      }
+
+      .debug-list {
+        margin: 10px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+      }
+
+      .debug-item {
+        padding: 10px;
+        border-radius: 10px;
+        background: #f8faff;
+        border: 1px solid #e2e8f5;
+      }
+
+      .debug-top {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 700;
+        color: #334155;
+      }
+
+      .debug-detail {
+        margin: 4px 0 0;
+        font-size: 12px;
+        line-height: 1.4;
+        color: #58627a;
+      }
     </style>
   </head>
   <body>
@@ -113,11 +186,32 @@
       <button id="manage-patterns" class="secondary-button" type="button">Manage text patterns</button>
       <p class="helper-text">Add your own button texts for reject actions and cookie settings links when a site uses wording that is not covered by the built-in patterns.</p>
     </section>
+    <section class="site-card">
+      <h1 class="site-title">Current Site</h1>
+      <p id="site-host" class="site-host">No active site</p>
+      <p>Choose how auto-reject should behave on this hostname.</p>
+      <select id="site-rule">
+        <option value="default">Default behavior</option>
+        <option value="disabled">Disable auto-reject on this site</option>
+        <option value="dom-only">Use DOM strategy only</option>
+        <option value="cmp-only">Use CMP strategy only</option>
+      </select>
+      <label class="inline-toggle" for="debug-toggle">
+        <input id="debug-toggle" type="checkbox">
+        <span>Enable debug history</span>
+      </label>
+      <p>Stores recent match attempts for the current site to help debug missed banners.</p>
+    </section>
     <section class="log-card">
       <h1 class="log-title">Last Result</h1>
       <p id="log-status" class="log-status">No data yet.</p>
       <p id="log-message" class="log-message"></p>
       <p id="log-meta" class="log-meta"></p>
+    </section>
+    <section class="log-card">
+      <h1 class="log-title">Debug History</h1>
+      <ul id="debug-history" class="debug-list"></ul>
+      <p id="debug-empty" class="log-message">Debug history is empty for this site.</p>
     </section>
     <script src="popup.js"></script>
   </body>
